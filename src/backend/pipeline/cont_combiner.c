@@ -50,6 +50,8 @@
 #include "utils/syscache.h"
 #include "utils/timestamp.h"
 
+#include "commands/trigger.h"
+
 #define GROUPS_PLAN_LIFESPAN (10 * 1000)
 
 static bool
@@ -454,6 +456,8 @@ sync_combine(ContQueryCombinerState *state, Tuplestorestate *results, TupleHashT
 	TupleTableSlot *slot = state->slot;
 	int size = sizeof(bool) * slot->tts_tupleDescriptor->natts;
 	bool *replace_all = palloc0(size);
+
+    AfterTriggerBeginQuery();
 	EState *estate = CreateExecutorState();
 
 	MemSet(replace_all, true, size);
@@ -479,9 +483,13 @@ sync_combine(ContQueryCombinerState *state, Tuplestorestate *results, TupleHashT
 			ExecStoreTuple(tup, slot, InvalidBuffer, false);
 			ExecCQMatRelUpdate(state->ri, slot, estate);
 			IncrementCQUpdate(1, HEAPTUPLESIZE + tup->t_len);
+
+            ereport(LOG, (errmsg("fubar %d update", getpid())));
 		}
 		else
 		{
+            ereport(LOG, (errmsg("fubar %d insert", getpid())));
+
 			/* No existing tuple found, so it's an INSERT */
 			ExecCQMatRelInsert(state->ri, slot, estate);
 			IncrementCQWrite(1, HEAPTUPLESIZE + slot->tts_tuple->t_len);
@@ -502,6 +510,7 @@ sync_combine(ContQueryCombinerState *state, Tuplestorestate *results, TupleHashT
 		}
 	}
 
+    AfterTriggerEndQuery(estate);
 	FreeExecutorState(estate);
 }
 
@@ -995,6 +1004,8 @@ next:
 		}
 
 		CommitTransactionCommand();
+
+        ProcessCompletedNotifies();
 
 		if (num_processed)
 			last_processed = GetCurrentTimestamp();

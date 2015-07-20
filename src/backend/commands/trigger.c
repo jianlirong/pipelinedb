@@ -4799,6 +4799,7 @@ AfterTriggerSaveEvent(EState *estate, ResultRelInfo *relinfo,
 	 */
 	if (afterTriggers == NULL)
 		elog(ERROR, "AfterTriggerSaveEvent() called outside of transaction");
+
 	if (afterTriggers->query_depth < 0)
 		elog(ERROR, "AfterTriggerSaveEvent() called outside of query");
 

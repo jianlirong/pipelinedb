@@ -15,6 +15,7 @@
 #include "access/htup_details.h"
 #include "access/xact.h"
 #include "catalog/index.h"
+#include "commands/trigger.h"
 #include "executor/executor.h"
 #include "nodes/execnodes.h"
 #include "pipeline/cqmatrel.h"
@@ -71,8 +72,11 @@ CQMatViewOpen(Relation matrel)
 
 	resultRelInfo = makeNode(ResultRelInfo);
 	resultRelInfo->ri_RangeTableIndex = 1; /* dummy */
+
 	resultRelInfo->ri_RelationDesc = matrel;
-	resultRelInfo->ri_TrigDesc = NULL;
+
+    // need to init the trigdesc here 
+	resultRelInfo->ri_TrigDesc = CopyTriggerDesc(matrel->trigdesc);
 
 	ExecOpenIndices(resultRelInfo);
 
@@ -155,10 +159,22 @@ ExecInsertCQMatRelIndexTuples(ResultRelInfo *indstate, TupleTableSlot *slot, ESt
 void
 ExecCQMatRelUpdate(ResultRelInfo *ri, TupleTableSlot *slot, EState *estate)
 {
+    List *recheckIndexes = NIL;
+
 	HeapTuple tup = ExecMaterializeSlot(slot);
 
 	simple_heap_update(ri->ri_RelationDesc, &tup->t_self, tup);
 	ExecInsertCQMatRelIndexTuples(ri, slot, estate);
+
+//    ExecARUpdateTriggers(estate, ri, ?tupleid, ?fdw_trigtuple, ?newtuple, recheckIndexes);
+
+    // estate, relinfo, tupleid ?, 
+
+//    ExecARUpdateTriggers(EState *estate, ResultRelInfo *relinfo,
+//					 ItemPointer tupleid,
+//					 HeapTuple fdw_trigtuple,
+//					 HeapTuple newtuple,
+//					 List *recheckIndexes)
 }
 
 /*
@@ -169,8 +185,15 @@ ExecCQMatRelUpdate(ResultRelInfo *ri, TupleTableSlot *slot, EState *estate)
 void
 ExecCQMatRelInsert(ResultRelInfo *ri, TupleTableSlot *slot, EState *estate)
 {
+    List *recheckIndexes = NIL;
 	HeapTuple tup = ExecMaterializeSlot(slot);
 
 	heap_insert(ri->ri_RelationDesc, tup, GetCurrentCommandId(true), 0, NULL);
 	ExecInsertCQMatRelIndexTuples(ri, slot, estate);
+
+    ereport(LOG, (errmsg("after matrel insert triggers")));
+
+
+    // XXX - do we need to worry about recheckIndexes?
+    ExecARInsertTriggers(estate, ri, tup, recheckIndexes);
 }
