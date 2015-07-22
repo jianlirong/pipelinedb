@@ -15,6 +15,7 @@
 #include "access/htup_details.h"
 #include "access/xact.h"
 #include "catalog/index.h"
+#include "commands/trigger.h"
 #include "executor/executor.h"
 #include "nodes/execnodes.h"
 #include "pipeline/cqmatrel.h"
@@ -23,6 +24,8 @@
 #include "utils/lsyscache.h"
 #include "utils/palloc.h"
 #include "utils/syscache.h"
+
+#include "commands/trigger.h"
 
 #define CQ_TABLE_SUFFIX "_mrel"
 
@@ -70,10 +73,40 @@ CQMatViewOpen(Relation matrel)
 	ResultRelInfo *resultRelInfo;
 
 	resultRelInfo = makeNode(ResultRelInfo);
-	resultRelInfo->ri_RangeTableIndex = 1; /* dummy */
-	resultRelInfo->ri_RelationDesc = matrel;
-	resultRelInfo->ri_TrigDesc = NULL;
+//	resultRelInfo->ri_RangeTableIndex = 1; /* dummy */
+//	resultRelInfo->ri_RelationDesc = matrel;
 
+	resultRelInfo = makeNode(ResultRelInfo);
+	InitResultRelInfo(resultRelInfo,
+					  matrel,
+					  1,		/* dummy rangetable index */
+					  0);
+
+
+
+	// I wonder if we can do what copy does.
+
+	// copy from matrel
+//	resultRelInfo->ri_TrigDesc = CopyTriggerDesc(matrel->trigdesc);
+
+	// any junk filters would have to be set up here.
+
+
+
+// XXX - InitResultRelInfo does this also.
+// 		 don't think we need it for our current triggers.
+//	if (resultRelInfo->ri_TrigDesc)
+//	{
+//		int			n = resultRelInfo->ri_TrigDesc->numtriggers;
+//
+//		resultRelInfo->ri_TrigFunctions = (FmgrInfo *)
+//			palloc0(n * sizeof(FmgrInfo));
+//		resultRelInfo->ri_TrigWhenExprs = (List **)
+//			palloc0(n * sizeof(List *));
+//		if (instrument_options)
+//			resultRelInfo->ri_TrigInstrument = InstrAlloc(n, instrument_options);
+//	}
+//
 	ExecOpenIndices(resultRelInfo);
 
 	return resultRelInfo;
@@ -155,10 +188,14 @@ ExecInsertCQMatRelIndexTuples(ResultRelInfo *indstate, TupleTableSlot *slot, ESt
 void
 ExecCQMatRelUpdate(ResultRelInfo *ri, TupleTableSlot *slot, EState *estate)
 {
+	List *recheckIndexes = NIL;
 	HeapTuple tup = ExecMaterializeSlot(slot);
 
 	simple_heap_update(ri->ri_RelationDesc, &tup->t_self, tup);
 	ExecInsertCQMatRelIndexTuples(ri, slot, estate);
+
+	// &tup->t_self is the tuple id.
+	ExecARUpdateTriggers(estate, ri, &tup->t_self, 0, tup, recheckIndexes);
 }
 
 /*
@@ -169,8 +206,11 @@ ExecCQMatRelUpdate(ResultRelInfo *ri, TupleTableSlot *slot, EState *estate)
 void
 ExecCQMatRelInsert(ResultRelInfo *ri, TupleTableSlot *slot, EState *estate)
 {
+	List *recheckIndexes = NIL;
 	HeapTuple tup = ExecMaterializeSlot(slot);
 
 	heap_insert(ri->ri_RelationDesc, tup, GetCurrentCommandId(true), 0, NULL);
 	ExecInsertCQMatRelIndexTuples(ri, slot, estate);
+
+	ExecARInsertTriggers(estate, ri, tup, recheckIndexes);
 }
