@@ -25,6 +25,8 @@
 #include "utils/palloc.h"
 #include "utils/syscache.h"
 
+#include "commands/trigger.h"
+
 #define CQ_TABLE_SUFFIX "_mrel"
 
 /*
@@ -71,12 +73,10 @@ CQMatViewOpen(Relation matrel)
 	ResultRelInfo *resultRelInfo;
 
 	resultRelInfo = makeNode(ResultRelInfo);
-	resultRelInfo->ri_RangeTableIndex = 1; /* dummy */
-
-	resultRelInfo->ri_RelationDesc = matrel;
-
-    // need to init the trigdesc here 
-	resultRelInfo->ri_TrigDesc = CopyTriggerDesc(matrel->trigdesc);
+	InitResultRelInfo(resultRelInfo,
+					  matrel,
+					  1,		/* dummy rangetable index */
+					  0);
 
 	ExecOpenIndices(resultRelInfo);
 
@@ -159,22 +159,13 @@ ExecInsertCQMatRelIndexTuples(ResultRelInfo *indstate, TupleTableSlot *slot, ESt
 void
 ExecCQMatRelUpdate(ResultRelInfo *ri, TupleTableSlot *slot, EState *estate)
 {
-    List *recheckIndexes = NIL;
-
+	List *recheckIndexes = NIL;
 	HeapTuple tup = ExecMaterializeSlot(slot);
 
 	simple_heap_update(ri->ri_RelationDesc, &tup->t_self, tup);
 	ExecInsertCQMatRelIndexTuples(ri, slot, estate);
 
-//    ExecARUpdateTriggers(estate, ri, ?tupleid, ?fdw_trigtuple, ?newtuple, recheckIndexes);
-
-    // estate, relinfo, tupleid ?, 
-
-//    ExecARUpdateTriggers(EState *estate, ResultRelInfo *relinfo,
-//					 ItemPointer tupleid,
-//					 HeapTuple fdw_trigtuple,
-//					 HeapTuple newtuple,
-//					 List *recheckIndexes)
+	ExecARUpdateTriggers(estate, ri, &tup->t_self, 0, tup, recheckIndexes);
 }
 
 /*
@@ -185,15 +176,11 @@ ExecCQMatRelUpdate(ResultRelInfo *ri, TupleTableSlot *slot, EState *estate)
 void
 ExecCQMatRelInsert(ResultRelInfo *ri, TupleTableSlot *slot, EState *estate)
 {
-    List *recheckIndexes = NIL;
+	List *recheckIndexes = NIL;
 	HeapTuple tup = ExecMaterializeSlot(slot);
 
 	heap_insert(ri->ri_RelationDesc, tup, GetCurrentCommandId(true), 0, NULL);
 	ExecInsertCQMatRelIndexTuples(ri, slot, estate);
 
-    ereport(LOG, (errmsg("after matrel insert triggers")));
-
-
-    // XXX - do we need to worry about recheckIndexes?
-    ExecARInsertTriggers(estate, ri, tup, recheckIndexes);
+	ExecARInsertTriggers(estate, ri, tup, recheckIndexes);
 }

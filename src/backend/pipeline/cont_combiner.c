@@ -18,6 +18,8 @@
 #include "catalog/pipeline_query_fn.h"
 #include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
+#include "commands/trigger.h"
+#include "commands/async.h"
 #include "executor/execdesc.h"
 #include "executor/executor.h"
 #include "executor/tstoreReceiver.h"
@@ -49,8 +51,6 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 #include "utils/timestamp.h"
-
-#include "commands/trigger.h"
 
 #define GROUPS_PLAN_LIFESPAN (10 * 1000)
 
@@ -453,12 +453,36 @@ finish:
 static void
 sync_combine(ContQueryCombinerState *state, Tuplestorestate *results, TupleHashTable existing)
 {
+	TupleDesc	tupDesc;
+	TupleTableSlot *myslot = 0;
 	TupleTableSlot *slot = state->slot;
 	int size = sizeof(bool) * slot->tts_tupleDescriptor->natts;
 	bool *replace_all = palloc0(size);
-
-    AfterTriggerBeginQuery();
 	EState *estate = CreateExecutorState();
+
+	estate->es_result_relations = state->ri;
+	estate->es_num_result_relations = 1;
+	estate->es_result_relation_info = state->ri;
+	estate->es_range_table = NIL;
+
+	{
+		// can we simplify ExecArUpdate code instead?
+
+		RangeTblEntry *rte;
+		rte = makeNode(RangeTblEntry);
+		rte->rtekind = RTE_RELATION;
+		rte->relid = RelationGetRelid(state->matrel);
+		rte->relkind = state->matrel->rd_rel->relkind;
+		estate->es_range_table = list_make1(rte);
+	}
+
+	tupDesc = RelationGetDescr(state->matrel);
+
+	myslot = ExecInitExtraTupleSlot(estate);
+	ExecSetSlotDescriptor(myslot, tupDesc);
+
+	estate->es_trig_tuple_slot = ExecInitExtraTupleSlot(estate);
+	AfterTriggerBeginQuery();
 
 	MemSet(replace_all, true, size);
 
@@ -483,13 +507,9 @@ sync_combine(ContQueryCombinerState *state, Tuplestorestate *results, TupleHashT
 			ExecStoreTuple(tup, slot, InvalidBuffer, false);
 			ExecCQMatRelUpdate(state->ri, slot, estate);
 			IncrementCQUpdate(1, HEAPTUPLESIZE + tup->t_len);
-
-            ereport(LOG, (errmsg("fubar %d update", getpid())));
 		}
 		else
 		{
-            ereport(LOG, (errmsg("fubar %d insert", getpid())));
-
 			/* No existing tuple found, so it's an INSERT */
 			ExecCQMatRelInsert(state->ri, slot, estate);
 			IncrementCQWrite(1, HEAPTUPLESIZE + slot->tts_tuple->t_len);
@@ -510,7 +530,7 @@ sync_combine(ContQueryCombinerState *state, Tuplestorestate *results, TupleHashT
 		}
 	}
 
-    AfterTriggerEndQuery(estate);
+	AfterTriggerEndQuery(estate);
 	FreeExecutorState(estate);
 }
 
@@ -1005,7 +1025,7 @@ next:
 
 		CommitTransactionCommand();
 
-        ProcessCompletedNotifies();
+		ProcessCompletedNotifies();
 
 		if (num_processed)
 			last_processed = GetCurrentTimestamp();
