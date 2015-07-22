@@ -282,9 +282,6 @@ ExecInsert(TupleTableSlot *slot,
 		setLastTid(&(tuple->t_self));
 	}
 
-	ereport(LOG,
-			(errmsg("after row insert triggers")));
-
 	/* AFTER ROW INSERT Triggers */
 	ExecARInsertTriggers(estate, resultRelInfo, tuple, recheckIndexes);
 
