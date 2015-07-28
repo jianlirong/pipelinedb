@@ -443,7 +443,6 @@ finish:
 	hash_destroy(batchgroups->hashtab);
 }
 
-
 /*
  * sync_combine
  *
@@ -453,8 +452,6 @@ finish:
 static void
 sync_combine(ContQueryCombinerState *state, Tuplestorestate *results, TupleHashTable existing)
 {
-	TupleDesc	tupDesc;
-	TupleTableSlot *myslot = 0;
 	TupleTableSlot *slot = state->slot;
 	int size = sizeof(bool) * slot->tts_tupleDescriptor->natts;
 	bool *replace_all = palloc0(size);
@@ -466,8 +463,6 @@ sync_combine(ContQueryCombinerState *state, Tuplestorestate *results, TupleHashT
 	estate->es_range_table = NIL;
 
 	{
-		// can we simplify ExecArUpdate code instead?
-
 		RangeTblEntry *rte;
 		rte = makeNode(RangeTblEntry);
 		rte->rtekind = RTE_RELATION;
@@ -475,11 +470,6 @@ sync_combine(ContQueryCombinerState *state, Tuplestorestate *results, TupleHashT
 		rte->relkind = state->matrel->rd_rel->relkind;
 		estate->es_range_table = list_make1(rte);
 	}
-
-	tupDesc = RelationGetDescr(state->matrel);
-
-	myslot = ExecInitExtraTupleSlot(estate);
-	ExecSetSlotDescriptor(myslot, tupDesc);
 
 	estate->es_trig_tuple_slot = ExecInitExtraTupleSlot(estate);
 	AfterTriggerBeginQuery();
