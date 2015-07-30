@@ -1835,6 +1835,11 @@ CopyTo(CopyState cstate)
 													  cstate->null_print_len,
 													  cstate->file_encoding);
 
+		// clear screen
+		// hide cursor
+		CopySendString(cstate, "\x1b[2J");
+		CopySendString(cstate, "\x1b[?25l");
+
 		/* if a header has been requested send the line */
 		if (cstate->header_line)
 		{
@@ -1857,6 +1862,7 @@ CopyTo(CopyState cstate)
 
 			CopySendEndOfRow(cstate);
 		}
+
 	}
 
 	if (cstate->rel)
@@ -1882,6 +1888,12 @@ CopyTo(CopyState cstate)
 			/* Format and send the data */
 			CopyOneRowTo(cstate, HeapTupleGetOid(tuple), values, nulls);
 			processed++;
+		}
+
+		{
+			// unhide cursor
+			CopySendString(cstate, "\x1b[?25h");
+			CopySendEndOfRow(cstate);
 		}
 
 		heap_endscan(scandesc);
@@ -1947,6 +1959,7 @@ CopyOneRowTo(CopyState cstate, Oid tupleOid, Datum *values, bool *nulls)
 			CopySendString(cstate, string);
 			need_delim = true;
 		}
+
 	}
 
 	foreach(cur, cstate->attnumlist)
@@ -1980,17 +1993,20 @@ CopyOneRowTo(CopyState cstate, Oid tupleOid, Datum *values, bool *nulls)
 										cstate->force_quote_flags[attnum - 1],
 										list_length(cstate->attnumlist) == 1);
 				else
+				{
+					CopySendString(cstate, "\x1b[22;0H");
 					CopyAttributeOutText(cstate, string);
+					CopySendString(cstate, "\x1b[K");
+//					CopySendString(cstate, "\n");
+//					CopyAttributeOutText(cstate, "\n");
+				}
 			}
 			else
 			{
 				bytea	   *outputbytes;
-
-				outputbytes = SendFunctionCall(&out_functions[attnum - 1],
-											   value);
+				outputbytes = SendFunctionCall(&out_functions[attnum - 1], value);
 				CopySendInt32(cstate, VARSIZE(outputbytes) - VARHDRSZ);
-				CopySendData(cstate, VARDATA(outputbytes),
-							 VARSIZE(outputbytes) - VARHDRSZ);
+				CopySendData(cstate, VARDATA(outputbytes), VARSIZE(outputbytes) - VARHDRSZ);
 			}
 		}
 	}
